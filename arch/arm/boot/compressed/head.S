@@ -315,10 +315,25 @@ restart:	adr	r0, LC0			// pc에서 LC0까지의 상대 주소를 r0에 저장
 		orr	r9, r9, lr, lsl #16	//r9 = r9 | (lr << 16)
 		orr	r9, r9, r10, lsl #24	//r9 = r9 | (lr << 24)
 
-#ifndef CONFIG_ZBOOT_ROM
+#ifndef CONFIG_ZBOOT_ROM	//ROM이나 kernel에서 부팅하는 압축된 bootloader이다.
 		/* malloc space is above the relocated stack (64k max) */
 		add	sp, sp, r0
 		add	r10, sp, #0x10000
+
+	//	+------+
+	//	|      |
+	//	+------+ r10
+	//	|64KB  |
+	//	+------+  현재 SP
+	//	| 4KB  |
+	//	+------+ 유저 스페이스 스택 영역의 마지막 주소
+
+	//	⇒
+	//	앞서 계산을 통해 얻어진, 적재된 메모리주소값을 sp에도 반영해줍니다.
+	//	그리고 sp 위로 64KB만큼을 malloc space로 준비해둡니다.
+	//	아마도 지금의 스택은 커널이 앞으로 사용할 스택이라기 보다는 압축해제시 함수호출을 위해 사용할 스택으로 보여집니다.
+	//	또한 malloc space 역시 압축해제시 사용할 heap 공간이겠지요?
+
 #else
 		/*
 		 * With ZBOOT_ROM the bss/stack is non relocatable,
@@ -357,7 +372,7 @@ restart:	adr	r0, LC0			// pc에서 LC0까지의 상대 주소를 r0에 저장
 #endif
 		//DTB를 사용하면 위 값이 zImage의 끝에 넣어져 있다.
 		cmp	lr, r1
-		bne	dtb_check_done		@ not found
+		bne	dtb_check_done		@ not found // hbseo DTB를 사용하지 않으면 바로 jump
 
 #ifdef CONFIG_ARM_ATAG_DTB_COMPAT
 		/*
@@ -411,10 +426,15 @@ restart:	adr	r0, LC0			// pc에서 LC0까지의 상대 주소를 r0에 저장
 		adr	r1, wont_overwrite
 		sub	r1, r6, r1		// r1 = device tree 주소 -  wont_overwrite의 주소 
 		subs	r1, r5, r1		// _kernel_bss_size - r1
-		addhi	r9, r9, r1		// if (r5 > r1) 
+		addhi	r9, r9, r1		// if (r5 > r1)
+						// hbseo int temp = ((_kernel_bss_size - (_edata - wont_overwirte));  
+						// hbseo if( temp > 0)
+						// hbseo	size of decompressed kernel += temp;
+						// hbseo 즉 decompressed kernel의 BSS영역이 (_edata - wont_overwirte) 보다 크다면 큰 부분만큼 size of decompressed kernel에 더한다.
 
 		/* Get the dtb's size */
-		ldr	r5, [r6, #4]
+		ldr	r5, [r6, #4]		// hbseo arch/arm/boot/dts/exynos5250-smdk5250.dtb에 있고 
+						// hbseo dtb 바이너리에서 0x4에 dtb size가 있다.
 #ifndef __ARMEB__
 		/* convert r5 (dtb size) to little endian */
 		eor	r1, r5, r5, ror #16
@@ -424,7 +444,7 @@ restart:	adr	r0, LC0			// pc에서 LC0까지의 상대 주소를 r0에 저장
 #endif
 
 		/* preserve 64-bit alignment */
-		add	r5, r5, #7
+		add	r5, r5, #7		//hbseo size는 byte단위이고 0b111는 8까지 표현 가능하므로 8*8bit(1byte)= 64bit 
 		bic	r5, r5, #7
 
 		/* relocate some pointers past the appended dtb */
@@ -470,7 +490,8 @@ dtb_check_done:
 		// 256 더하는 이유? 겹치지 않도록 여유공간 확보 하기위함. 
 		// r10 = end of the decompressed kernel + (reloc_code_end - restart + 256) & ~255)
 		add	r10, r10, #((reloc_code_end - restart + 256) & ~255)
-		bic	r10, r10, #255
+					// hbseo end of the decompressed kernel 에 restart에서 reloc_code_end까지의 크기를 더함
+		bic	r10, r10, #255	// hbseo align을 의미함;
 
 		/* Get start of code we want to copy and align it down. */
 		adr	r5, restart
@@ -496,17 +517,22 @@ dtb_check_done:
 		add	r9, r9, #31		@ rounded up to a multiple
 		bic	r9, r9, #31		@ ... of 32 bytes
 		add	r6, r9, r5		// r6 = size + restart 위치 -> source end address 구한 결과
+						// [hbseo] r6 = 대충 _edata(with dtd size)
 		add	r9, r9, r10             // destination end address 구한 결과
-
-		
+						// [hbseo] r9 = end of the decompressed kernel주소에 restart에서 reloc_code_end까지의 크기와
+						// [hbseo] restart에서 _edata까지의 크기를 더한 것
+						// [hbseo]?? restart ~ reloc_code_end 크기는 restart ~ _edata 크기내에 존재하는데 왜 더해줄까?	
 		
 1:		ldmdb	r6!, {r0 - r3, r10 - r12, lr}	// decrement before
 							// r0 = *(r6 - 4) ... lr = *(r6 - 32) r6 = r6 - 32
 		cmp	r6, r5				// source end address 까지 왔는지 비교	
 		stmdb	r9!, {r0 - r3, r10 - r12, lr}	// load한것 store 
 		bhi	1b
+							// [hbseo] 자기 코드를 복사하고 있는 중이다.
+							// [hbseo] 8개 레지스터를 이용해서 한번에 32바이트씩 계속 복사하는 중이다.
 
-		/* Preserve offset to relocated code. */
+		
+		/* Preserve offset to relocated code. */	//[hbseo] r6 = (decrement before 이므로 복사한 구역의 첫 주소) - (아마도 restart)
 		sub	r6, r9, r6
 
 #ifndef CONFIG_ZBOOT_ROM
@@ -655,6 +681,19 @@ LC0:		.word	LC0			@ r1
 		.word	_end - restart + 16384 + 1024*1024
 		.size	LC0, . - LC0
 
+	//	Linux 의 기본 바이너리 포맷은 ELF(Executable and Linking Format)이며, 
+	//	ELF는 원래 UNIX System Laboratories(USL)에 의해 ABI(Application Binary Interface)의 일환으로 개발되었다.
+	//	ELF 파일의 프로세스 공간은 GOT(Global Offset Table)을 포함하고 있는데, 이 GOT는 절대 주소값을 가지고 있다.
+	//	이렇게 절대 주소값을 가지고 있을 경우, 코드 영역의 위치여부나 공유여부에 상관없이 사용 할 수 있게 된다.
+	//	실제 테이블의 내용이나 형태는 프로세서의 종류에 따라 다를 수 있지만, 기본적으로 GOT는 다이나믹 링킹 프로세스를 지원하는데 있다.
+	//	프로그램에 의해 사용되는 모든 라이브러리 함수는 GOT에 실제 함수의 주소를 가진 엔트리를 가지고 있으며,
+	//	이는 라이브러리가 쉽게 프로세스 메모리 안에서 재배치될 수 있게 한다.
+	//	프로그램이 실제로 함수를 처음으로 사용하기 전까지는, GOT의 엔트리에는 RTL(RunTime Linker)의 주소를 가지고 있다.
+	//	만약 프로그램에 의해 함수가 호출되면, RTL에게 제어는 넘어가며, 함수의 실제 주소가 GOT에 등록된다.
+	//	차후의 함수 호출은 RTL을 거칠 필요 없이 GOT를 통해서 호출된다.
+	//	GOT 엔트리의 주소는 EFL 파일의 고정된 위치에 있고, 결과적으로 모든 실행 프로세스 이미지들에게 공통적인 주소에 있게 된다.
+	//	GOT 엔트리의 위치를 알려면, objdump 커맨드를 사용하여 확인 할 수 있다. 
+
 #ifdef CONFIG_ARCH_RPC
 		.globl	params
 params:		ldr	r0, =0x10000100		@ params_phys for RPC
@@ -789,7 +828,9 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 						// r1 = 0x12 | (0x3 << 10 ) = 0xC12
 		add	r2, r3, #16384		// r2 = 0x40004000 + 0x4000(16384) = 0x40008000
 
-//
+// hbseo 실제적으로 loop를 도는 범위는 0x40000000~0x50000000아니라 0x40004000~0x40008000 즉, L1 page table범위만 설정함
+// hbseo 루프에서 하는건 page table이 if (in non-RAM) C,B를 clear; else if(in RAM) C,B bit를 Set;
+// hbseo 즉, 아래 두 라인의 주석은 갠적으로 틀린듯 함.
 // 전체 4Gbyte 영역중 0x40000000 부터 0x50000000 까지 영역만 Writeback/executable(0xC0E)영역으로 설정한다.
 // 나머지는 Noncacheable,Nonexecutable, Nonbufferable(0xC12) 로 설정
 //
@@ -809,7 +850,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 		orrlo	r1, r1, #0x10		@ Set XN|U for non-RAM
 						// lo(low) : 작다면 r1 = 0xc02 | 0x10 = 0xc12
 		orrhs	r1, r1, r6		@ set RAM section settings
-						// hs(high or same) : 크거나 같다면
+						// hs(high or same) : 크거나 같다면 r1 = 0xc02 | 0xE = 0xc0E
 		str	r1, [r0], #4		@ 1:1 mapping
 						// *r0 = r1, r0 += 4 // 0x40004000 주소에 0xc12를 저장후 0x40004004
 		add	r1, r1, #1048576	// r1 = 0xc12 + 0x100000(1048576) = 0x100c12
@@ -873,6 +914,7 @@ __setup_mmu:	sub	r3, r4, #16384		@ Page directory size
 //FIXME B를 여기와서 다시 0xC0E 로 셋하는 이유 : (조사요망)
 //
 		orr	r1, r6, #0x04		@ ensure B is set for this
+						// hbseo r6는 CONFIG_CPU_DCACHE_WRITETHROUGH에 따라 달라짐
 						// r1 = 0xE(r6) | 0x04 = 0xE
 		orr	r1, r1, #3 << 10	// r1 = 0xE(r1) | (0x3 << 10) = 0xC0E
 		mov	r2, pc			// r2 = pc
@@ -1092,12 +1134,12 @@ __common_mmu_cache_on:
  *
  *  r1  = corrupted      // currupted란 함수 내에서 변경한다는 뜻.
  *  r2  = corrupted
- *  r3  = block offset   // #8
+ *  r3  = block offset   // #8 [8 = cache_on, 12 = cache_off, 16 = cache_off]
  *  r9  = corrupted
  *  r12 = corrupted
  */
 
-/* 주석의 corrupted 의 의미는? :  */
+/* 주석의 corrupted 의 의미는? :  변경 될 수 있다라는 뜻 (can scratch)*/
 //
 // adr:
 // r12:

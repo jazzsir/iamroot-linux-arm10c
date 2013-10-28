@@ -44,6 +44,8 @@
 // exynos 기준
 // PAGE_OFFSET: 0xC0000000, TEXT_OFFSET: 0x8000
 #define KERNEL_RAM_VADDR	(PAGE_OFFSET + TEXT_OFFSET)
+// hbseo PAGE_OFFSET = 가상 메모리상에서 kernel 영역의 시작주소 : 0xC0000000
+// hbseo TEXT_OFFSET = Kernel 이미지의 시작 주소 : 0x8000
 #if (KERNEL_RAM_VADDR & 0xffff) != 0x8000
 #error KERNEL_RAM_VADDR must start at 0xXXXX8000
 #endif
@@ -138,8 +140,14 @@ ENTRY(stext)
 #ifndef CONFIG_XIP_KERNEL
 	adr	r3, 2f
 	ldmia	r3, {r4, r8}
+						/* [hbseo] 2f를 objdump해보면 아래와 같음
+						   0xc000807c : 0xc000807c  -> r4
+						   0xc0008080 : 0xc0000000  -> r8
+						   0x4000807c -> r3 (2f의 주소는 물리 메모리 상의 주소이므로)*/
 	sub	r4, r3, r4			@ (PHYS_OFFSET - PAGE_OFFSET)
+						/* [hbseo] 0x4000807c - 0xc000807c = -80000000 */
 	add	r8, r8, r4			@ PHYS_OFFSET
+						/* [hbseo] 결국 PHYS_OFFSET은 물리 메모리의 OFFSET이 됨 0x40000000 */
 #else
 	ldr	r8, =PHYS_OFFSET		@ always constant in this case
 #endif
@@ -218,10 +226,11 @@ __create_page_tables:
 	mov	r3, #0
 	add	r6, r0, #PG_DIR_SIZE
 1:	str	r3, [r0], #4
+				/*[hbseo] r3의 값을 메모리의 r0의 주소에 저장하고 r1을 +4함*/
 	str	r3, [r0], #4
 	str	r3, [r0], #4
 	str	r3, [r0], #4
-	teq	r0, r6
+	teq	r0, r6  /*[hbseo] r0:40004000, r6:40008000*/
 	bne	1b
 
 #ifdef CONFIG_ARM_LPAE
@@ -258,6 +267,7 @@ __create_page_tables:
 	// mmu section ENTRY 에 들어갈 속성값 : 
 	// - PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | PMD_SECT_AF | PMD_FLAGS_SMP | \mm_mmuflags = 0)
 	// section ENTRY 의 base 주소를 제외한 속성값으로 사용된다. 
+	/** [hbseo] 따라가다 보면 proc-V7.S에서 값을 넣음 */
 	ldr	r7, [r10, #PROCINFO_MM_MMUFLAGS] @ mm_mmuflags
 
 	/*
@@ -672,15 +682,22 @@ ENDPROC(fixup_smp)
 	__HEAD
 __fixup_pv_table:
 	adr	r0, 1f
-	ldmia	r0, {r3-r5, r7}
+	ldmia	r0, {r3-r5, r7} /* [hbseo]
+				r0 : 0x4000xxxx 
+				r3 : 0xc000xxxx
+				*/
 	sub	r3, r0, r3	@ PHYS_OFFSET - PAGE_OFFSET
+				/* [hbseo]  r3 = -80000000*/	
 	add	r4, r4, r3	@ adjust table start address
+				/* [hbseo]  r4 = 4000xxxx*/	
 	add	r5, r5, r3	@ adjust table end address
+				/* [hbseo]  r5 = 4000xxxx*/	
 	add	r7, r7, r3	@ adjust __pv_phys_offset address
 	// 물리메모리의 주소 - 논리메모리(컴파일시결정)의 주소 = PHYS_OFFSET
 	str	r8, [r7]	@ save computed PHYS_OFFSET to __pv_phys_offset
 	mov	r6, r3, lsr #24	@ constant for add/sub instructions
-	teq	r3, r6, lsl #24 @ must be 16MiB aligned
+	teq	r3, r6, lsl #24 @ must be 16MiB aligned 
+				/* [hbseo] TODO ?? -80000000에서 24bit를 clear시키는데 왜?.*/
 THUMB(	it	ne		@ cross section branch )
 	bne	__error
 	str	r6, [r7, #4]	@ save to __pv_offset

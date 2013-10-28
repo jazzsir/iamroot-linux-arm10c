@@ -78,6 +78,7 @@ __vet_atags:
 	bne	1f
 	ldr	r5, [r2, #4]
 	ldr	r6, =ATAG_CORE
+				// hbseo ATAG는 ATAG_CORE제일 앞에 오므로 이거와 비교함.
 	cmp	r5, r6
 	bne	1f
 
@@ -158,6 +159,7 @@ __mmap_switched_data:
 /*
  * This provides a C-API version of __lookup_processor_type
  */
+/* [hbseo] TODO 아래 코드가 언제 실행되는지 모르겠음 */
 ENTRY(lookup_processor_type)
 	stmfd	sp!, {r4 - r6, r9, lr}
 	mov	r9, r0
@@ -196,6 +198,7 @@ __lookup_processor_type:
 	sub	r3, r3, r4			@ get offset between virt&phys
 	add	r5, r5, r3			@ convert virt addresses to
 	add	r6, r6, r3			@ physical address space
+	/* [hbseo] TODO 왜 아래 파일 위치에서 정의 되는지 못찾음! */
 	// arch/mm/proc-v7.S 의 아래의 값을 r3, r4에 로드함
 	// __v7_ca15mp_proc_info:
 	// .long	0x410fc0f0

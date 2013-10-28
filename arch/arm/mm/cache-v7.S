@@ -104,6 +104,8 @@ ENTRY(v7_flush_dcache_louis)
 	ALT_UP(mov	r3, r3, lsr #26)	@ r3 = LoUU * 2
 	moveq	pc, lr				@ return if level == 0
 	mov	r10, #0				@ r10 (starting level) = 0
+						/* [hbseo] 0이라는것은 cache를 사용하지 않는다는 의의미임
+						   현재 모든 SoC에서 사용하므로 무조건 0이 아님 */
 	b	flush_levels			@ start flushing cache levels
 ENDPROC(v7_flush_dcache_louis)
 
