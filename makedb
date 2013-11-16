@@ -1,7 +1,0 @@
-echo "export KBUILD_SRC=/home/jazzsir/iamroot-linux-arm10c"
-export KBUILD_SRC=/home/jazzsir/iamroot-linux-arm10c
-echo "make tags ARCH=arm"
-make tags ARCH=arm
-echo "cscope ARCH=arm"
-make cscope ARCH=arm
-unset KBUILD_SRC

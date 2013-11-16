@@ -1,1 +1,3 @@
 garbage file for git commit test
+garbage file for git commit test 2
+
