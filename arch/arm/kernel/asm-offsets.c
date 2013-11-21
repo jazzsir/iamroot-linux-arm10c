@@ -44,7 +44,7 @@
 #error Your compiler is too buggy; it is known to miscompile kernels.
 #error    Known good compilers: 3.3
 #endif
-
+/* [hbseo] 아래 코드들은 컴파일 시점에 정의됨 */
 int main(void)
 {
   DEFINE(TSK_ACTIVE_MM,		offsetof(struct task_struct, active_mm));
