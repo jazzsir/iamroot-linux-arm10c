@@ -315,11 +315,11 @@ static int __init exynos_fdt_map_chipid(unsigned long node, const char *uname,
 		!of_flat_dt_is_compatible(node, "samsung,exynos5440-clock"))
 		return 0;
 
-	reg = of_get_flat_dt_prop(node, "reg", &len);
+	reg = of_get_flat_dt_prop(node, "reg", &len); // [hbseo] exnos5.dtsi에 -> reg : 0x10000000 0x100>
 	if (reg == NULL || len != (sizeof(unsigned long) * 2))
 		return 0;
 
-	iodesc.pfn = __phys_to_pfn(be32_to_cpu(reg[0]));
+	iodesc.pfn = __phys_to_pfn(be32_to_cpu(reg[0])); // [hbseo] pfn = page table entiry 즉 2차 page table을 말함
 	iodesc.length = be32_to_cpu(reg[1]) - 1;
 	iodesc.virtual = (unsigned long)S5P_VA_CHIPID;
 	iodesc.type = MT_DEVICE;
