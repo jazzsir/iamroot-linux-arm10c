@@ -118,6 +118,7 @@ ENDPROC(v7_flush_dcache_louis)
  *
  *	- mm    - mm_struct describing address space
  */
+// ARM10C 20131130
 ENTRY(v7_flush_dcache_all)
 	dmb					@ ensure ordering with previous memory accesses
 	mrc	p15, 1, r0, c0, c0, 1		@ read clidr
@@ -186,6 +187,7 @@ ENDPROC(v7_flush_dcache_all)
  *  unification in a single instruction.
  *
  */
+// ARM10C 20131130
 ENTRY(v7_flush_kern_cache_all)
  ARM(	stmfd	sp!, {r4-r5, r7, r9-r11, lr}	)
  THUMB(	stmfd	sp!, {r4-r7, r9-r11, lr}	)

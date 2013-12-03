@@ -46,6 +46,7 @@ EXPORT_SYMBOL(empty_zero_page);
 /*
  * The pmd table for the upper-most set of pages.
  */
+// ARM10C 20131130
 pmd_t *top_pmd;
 
 #define CPOLICY_UNCACHED	0
@@ -638,44 +639,62 @@ EXPORT_SYMBOL(phys_mem_access_prot);
 // ARM10C 20131109
 // ARM10C 20131116
 // sz: 0x00002000, sz: 0x00002000
+// ARM10C 20131123
+// sz: 0x00001000, sz: 0x00001000
 static void __init *early_alloc_aligned(unsigned long sz, unsigned long align)
 {
 	// sz: 0x00002000, align: 0x00002000
 	// memblock_alloc(sz, align): 0x6F7FE000
 	// ptr: __va(0x6F7FE000): 0xEF7FE000
+	//
+	// sz: 0x00001000, sz: 0x00001000
+	// memblock_alloc(sz, align): 0x6F7FD000
+	// ptr: __va(0x6F7FD000): 0xEF7FD000
 	void *ptr = __va(memblock_alloc(sz, align));
 	memset(ptr, 0, sz);
 	return ptr;
 }
 
-// ARM10C 20131109
-// sz: 0x00002000
+// ARM10C 20131123
+// PTE_HWTABLE_OFF + PTE_HWTABLE_SIZE: 4096 
 static void __init *early_alloc(unsigned long sz)
 {
-	// sz: 0x00002000
 	return early_alloc_aligned(sz, sz);
 }
 
-// ARM10C 20131109
-// pmd: 0xc0007000, addr: 0xC0000000, type.prot_l1: PMD_TYPE_TABLE
+// ARM10C 20131123
+// pmd: 0xc0007FF8, addr: 0xffff0000
 static pte_t * __init early_pte_alloc(pmd_t *pmd, unsigned long addr, unsigned long prot)
 {
-	// pmd: 0xc0007000, pmd_none(*pmd): 0
+	// pmd: 0xc0007FF8, pmd_none(*pmd): 0
 	if (pmd_none(*pmd)) {
+		// PTE_HWTABLE_OFF: 2048, PTE_HWTABLE_SIZE: 2048
+		// pte: 0xEF7FD000
 		pte_t *pte = early_alloc(PTE_HWTABLE_OFF + PTE_HWTABLE_SIZE);
+		// pmd: 0xc0007FF8, __pa(pte): 0x6F7FD000, 
 		__pmd_populate(pmd, __pa(pte), prot);
 	}
 	// pmd_bad(*pmd): 0
 	BUG_ON(pmd_bad(*pmd));
+
+	// __pmd_populate에서 pmd 값을 바꿈
+	// pmd: 0x6F7FD8XX, addr: 0xffff0000
+	// pte_offset_kernel(0x6F7FD8XX, 0xffff0000): 0xEF7FD1F0
 	return pte_offset_kernel(pmd, addr);
 }
 
+// ARM10C 20131123
+// pmd: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, __phys_to_pfn(phys): 0x6F7FE
 static void __init alloc_init_pte(pmd_t *pmd, unsigned long addr,
 				  unsigned long end, unsigned long pfn,
 				  const struct mem_type *type)
 {
+	// pmd: 0xc0007FF8, addr: 0xffff0000
+	// pte: 0xEF7FD1F0
 	pte_t *pte = early_pte_alloc(pmd, addr, type->prot_l1);
 	do {
+		// pte: 0xEF7FD1F0, pfn: 0x6F7FE
+		// pfn_pte(0x6F7FE, __pgprot(type->prot_pte)): 0x6F7FEXXX
 		set_pte_ext(pte, pfn_pte(pfn, __pgprot(type->prot_pte)), 0);
 		pfn++;
 	} while (pte++, addr += PAGE_SIZE, addr != end);
@@ -719,11 +738,14 @@ static void __init __map_init_section(pmd_t *pmd, unsigned long addr,
 
 // ARM10C 20131109
 // pud: 0xc0007000, addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
+// ARM10C 20131123
+// pud: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, phys: 0x6F7FE000
 static void __init alloc_init_pmd(pud_t *pud, unsigned long addr,
 				      unsigned long end, phys_addr_t phys,
 				      const struct mem_type *type)
 {
 	// pmd: 0xc0007000
+	// pmd: 0xc0007FF8
 	pmd_t *pmd = pmd_offset(pud, addr);
 	unsigned long next;
 
@@ -733,6 +755,7 @@ static void __init alloc_init_pmd(pud_t *pud, unsigned long addr,
 		 * all the pmds for the given range.
 		 */
 		// next: 0xC0200000
+		// next: 0xffff1000
 		next = pmd_addr_end(addr, end);
 
 		/*
@@ -740,12 +763,14 @@ static void __init alloc_init_pmd(pud_t *pud, unsigned long addr,
 		 * aligned to a section boundary.
 		 */
 		// addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
+		// addr: 0xffff0000, next: 0xffff1000, phys: 0x6F7FE000
 		// SECTION_MASK: 0xFFF00000, ~SECTION_MASK: 0x000FFFFF
 		if (type->prot_sect &&
 				((addr | next | phys) & ~SECTION_MASK) == 0) {
 			// pmd: 0xc0007000, addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
 			__map_init_section(pmd, addr, next, phys, type);
 		} else {
+			// pmd: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, __phys_to_pfn(phys): 0x6F7FE
 			alloc_init_pte(pmd, addr, next,
 						__phys_to_pfn(phys), type);
 		}
@@ -759,20 +784,26 @@ static void __init alloc_init_pmd(pud_t *pud, unsigned long addr,
 
 // ARM10C 20131109
 // pgd: 0xc0007000, addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
+// ARM10C 20131123
+// pgd: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, phys: 0x6F7FE000
 static void __init alloc_init_pud(pgd_t *pgd, unsigned long addr,
 				  unsigned long end, phys_addr_t phys,
 				  const struct mem_type *type)
 {
 	// pud: 0xc0007000
+	// pud: 0xc0007FF8
 	pud_t *pud = pud_offset(pgd, addr);
 	unsigned long next;
 
 	do {
 		// addr: 0xC0000000, end: 0xC0200000, next: 0xC0200000
+		// addr: 0xffff0000, end: 0xffff1000, next: 0xffff1000
 		next = pud_addr_end(addr, end);
 		// pud: 0xc0007000, addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
+		// pud: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, phys: 0x6F7FE000
 		alloc_init_pmd(pud, addr, next, phys, type);
 		// phys: 0x40000000 + 0x200000
+		// phys: 0x6F7FE000 + 0x1000
 		phys += next - addr;
 	} while (pud++, addr = next, addr != end);
 }
@@ -851,6 +882,12 @@ static void __init create_36bit_mapping(struct map_desc *md,
 // map.virtual: 0xC0000000
 // map.length: 0x2f800000
 // map.type: MT_MEMORY
+
+// ARM10C 20131123
+// map.pfn: 0x6F7FE
+// map.virtual: 0xffff0000;
+// map.length: 0x1000, PAGE_SIZE: 0x1000
+// map.type = MT_HIGH_VECTORS;
 static void __init create_mapping(struct map_desc *md)
 {
 	unsigned long addr, length, end;
@@ -859,6 +896,7 @@ static void __init create_mapping(struct map_desc *md)
 	pgd_t *pgd;
 
 	// md->virtual: 0xC0000000, vectors_base(): 0xffff0000, TASK_SIZE: 0xBF000000
+	// md->virtual: 0xffff0000, vectors_base(): 0xffff0000, TASK_SIZE: 0xBF000000
 	if (md->virtual != vectors_base() && md->virtual < TASK_SIZE) {
 		printk(KERN_WARNING "BUG: not creating mapping for 0x%08llx"
 		       " at 0x%08lx in user region\n",
@@ -881,6 +919,7 @@ static void __init create_mapping(struct map_desc *md)
 	 * Catch 36-bit addresses
 	 */
 	// md->pfn: 0x40000
+	// map.pfn: 0x6F7FE
 	if (md->pfn >= 0x100000) {
 		create_36bit_mapping(md, type);
 		return;
@@ -888,13 +927,17 @@ static void __init create_mapping(struct map_desc *md)
 #endif
 
 	// md.virtual: 0xC0000000, PAGE_MASK: 0xFFFFF000, addr: 0xC0000000
+	// md.virtual: 0xffff0000, PAGE_MASK: 0xFFFFF000, addr: 0xffff0000
 	addr = md->virtual & PAGE_MASK;
 	// md->pfn: 0x40000, phys: 0x40000000
+	// md->pfn: 0x6F7FE, phys: 0x6F7FE000
 	phys = __pfn_to_phys(md->pfn);
 	// md.length: 0x2f800000, length: 0x2f800000
+	// md.length: 0x1000, length: 0x1000
 	length = PAGE_ALIGN(md->length + (md->virtual & ~PAGE_MASK));
 
 	// addr: 0xC0000000, phys: 0x40000000, length: 0x2f800000
+	// addr: 0xffff0000, phys: 0x6F7FE000, length: 0x1000
 	if (type->prot_l1 == 0 && ((addr | phys | length) & ~SECTION_MASK)) {
 		printk(KERN_WARNING "BUG: map for 0x%08llx at 0x%08lx can not "
 		       "be mapped using pages, ignoring.\n",
@@ -903,19 +946,26 @@ static void __init create_mapping(struct map_desc *md)
 	}
 
 	// addr: 0xC0000000, pgd: 0xc0004000 + 0x600 * 8
+	// addr: 0xffff0000, pgd: 0xc0004000 + 0x7FF * 8
 	pgd = pgd_offset_k(addr);
+
 	// end: 0xC0000000 + 0x2f800000: 0xef800000
+	// end: 0xffff0000 + 0x1000: 0xffff1000
 	end = addr + length;
 	do {
 		// addr: 0xC0000000, end: 0xef800000, next: 0xC0200000
+		// addr: 0xffff0000, end: 0xffff1000, next: 0xffff1000
 		unsigned long next = pgd_addr_end(addr, end);
 
 		// pgd: 0xc0007000, addr: 0xC0000000, next: 0xC0200000, phys: 0x40000000
+		// pgd: 0xc0007FF8, addr: 0xffff0000, next: 0xffff1000, phys: 0x6F7FE000
 		alloc_init_pud(pgd, addr, next, phys, type);
 
 		// phys: 0x40000000 + 0x200000
+		// phys: 0x6F7FE000 + 0x1000
 		phys += next - addr;
 		// addr: 0xC0200000
+		// addr: 0xffff1000
 		addr = next;
 	} while (pgd++, addr != end);
 }
@@ -924,6 +974,17 @@ static void __init create_mapping(struct map_desc *md)
  * Create the architecture specific mappings
  */
 // ARM10C 20131116
+// iodesc.pfn: 0x10000
+// iodesc.length: 0xFF
+// iodesc.virtual: 0xF8000000
+// iodesc.type = MT_DEVICE;
+// nr: 1
+//
+// S3C_VA_SYS
+// iodesc.pfn: __phys_to_pfn(EXYNOS5_PA_SYSCON): 0x10050
+// iodesc.length: SZ_64K: 0x10000
+// iodesc.virtual: S3C_VA_SYS : 0xF6100000
+// iodesc.type = MT_DEVICE;
 void __init iotable_init(struct map_desc *io_desc, int nr)
 {
 	struct map_desc *md;
@@ -933,22 +994,39 @@ void __init iotable_init(struct map_desc *io_desc, int nr)
 	if (!nr)
 		return;
 
+	// svm 크기만큼 가상 메모리 공간 확보
 	svm = early_alloc_aligned(sizeof(*svm) * nr, __alignof__(*svm));
 
 	for (md = io_desc; nr; md++, nr--) {
+// 2013/11/23 종료
+// 2013/11/30 시작
+		// io 영역을 highmem에 mapping 함 
 		create_mapping(md);
 
 		vm = &svm->vm;
+		// md->virtual: 0xF8000000,  PAGE_MASK: 0xFFFFF000, vm->addr: 0xF8000000
+		// md->virtual: 0xF6100000,  PAGE_MASK: 0xFFFFF000, vm->addr: 0xF6100000
 		vm->addr = (void *)(md->virtual & PAGE_MASK);
+		// md->length: 0xFF, vm->size: 0x1000
+		// md->length: 0x10000, vm->size: 0x10000
 		vm->size = PAGE_ALIGN(md->length + (md->virtual & ~PAGE_MASK));
+		// md->pfn: 0x10000, vm->phys_addr: 0x10000000
+		// md->pfn: 0x10050, vm->phys_addr: 0x10050000
 		vm->phys_addr = __pfn_to_phys(md->pfn);
+		// VM_IOREMAP: 0x00000001, VM_ARM_STATIC_MAPPING: 0x40000000, vm->flags: 0x40000001
+		// VM_IOREMAP: 0x00000001, VM_ARM_STATIC_MAPPING: 0x40000000, vm->flags: 0x40000001
 		vm->flags = VM_IOREMAP | VM_ARM_STATIC_MAPPING;
+		// md->type = MT_DEVICE, VM_ARM_MTYPE(md->type): 0x0
+		// md->type = MT_DEVICE, VM_ARM_MTYPE(md->type): 0x0
 		vm->flags |= VM_ARM_MTYPE(md->type);
 		vm->caller = iotable_init;
+		// vm->addr: 0xF8000000, vm->size: 0x1000, vm->phys_addr: 0x10000000, vm->flags: 0x40000001
+		// vm->addr: 0xF6100000, vm->size: 0x10000, vm->phys_addr: 0x10050000, vm->flags: 0x40000001
 		add_static_vm_early(svm++);
 	}
 }
 
+// ARM10C 20131130
 void __init vm_reserve_area_early(unsigned long addr, unsigned long size,
 				  void *caller)
 {
@@ -960,12 +1038,13 @@ void __init vm_reserve_area_early(unsigned long addr, unsigned long size,
 	vm = &svm->vm;
 	vm->addr = (void *)addr;
 	vm->size = size;
+	// VM_ARM_EMPTY_MAPPING: 0x20000000
 	vm->flags = VM_IOREMAP | VM_ARM_EMPTY_MAPPING;
 	vm->caller = caller;
 	add_static_vm_early(svm);
 }
 
-#ifndef CONFIG_ARM_LPAE
+#ifndef CONFIG_ARM_LPAE // CONFIG_ARM_LPAE=n
 
 /*
  * The Linux PMD is made of two consecutive section entries covering 2MB
@@ -980,11 +1059,14 @@ void __init vm_reserve_area_early(unsigned long addr, unsigned long size,
  * PMD halves once the static mappings are in place.
  */
 
+// ARM10C 20131130
 static void __init pmd_empty_section_gap(unsigned long addr)
 {
 	vm_reserve_area_early(addr, SECTION_SIZE, pmd_empty_section_gap);
 }
 
+// ARM10C 20131130
+// SYSC: 0xf6100000 +  64kB   PA:0x10050000 
 static void __init fill_pmd_gaps(void)
 {
 	struct static_vm *svm;
@@ -994,6 +1076,7 @@ static void __init fill_pmd_gaps(void)
 
 	list_for_each_entry(svm, &static_vmlist, list) {
 		vm = &svm->vm;
+		// addr: 0xf6100000
 		addr = (unsigned long)vm->addr;
 		if (addr < next)
 			continue;
@@ -1003,8 +1086,12 @@ static void __init fill_pmd_gaps(void)
 		 * If so and the first section entry for this PMD is free
 		 * then we block the corresponding virtual address.
 		 */
+		// pmd 의 첫번째 section 
+		// addr: 0xf6100000, PMD_MASK: 0xFFE00000, (addr & ~PMD_MASK): 0x00100000
+		// SECTION_SIZE: 0x00100000
 		if ((addr & ~PMD_MASK) == SECTION_SIZE) {
 			pmd = pmd_off_k(addr);
+			// pmd_none(*pmd): 0
 			if (pmd_none(*pmd))
 				pmd_empty_section_gap(addr & PMD_MASK);
 		}
@@ -1014,7 +1101,12 @@ static void __init fill_pmd_gaps(void)
 		 * If so and the second section entry for this PMD is empty
 		 * then we block the corresponding virtual address.
 		 */
+		// vm->size: 0x10000, addr: 0xf6110000 
 		addr += vm->size;
+
+		// pmd 의 두번째 section 
+		// addr: 0xf6110000, PMD_MASK: 0xFFE00000, (addr & ~PMD_MASK): 0x00100000
+		// SECTION_SIZE: 0x00100000
 		if ((addr & ~PMD_MASK) == SECTION_SIZE) {
 			pmd = pmd_off_k(addr) + 1;
 			if (pmd_none(*pmd))
@@ -1022,6 +1114,8 @@ static void __init fill_pmd_gaps(void)
 		}
 
 		/* no need to look at any vm entry until we hit the next PMD */
+		// addr: 0xf6110000, PMD_SIZE: 0x00200000, PMD_MASK: 0xFFE00000
+		// next: 0xf6200000
 		next = (addr + PMD_SIZE - 1) & PMD_MASK;
 	}
 }
@@ -1030,7 +1124,7 @@ static void __init fill_pmd_gaps(void)
 #define fill_pmd_gaps() do { } while (0)
 #endif
 
-#if defined(CONFIG_PCI) && !defined(CONFIG_NEED_MACH_IO_H)
+#if defined(CONFIG_PCI) && !defined(CONFIG_NEED_MACH_IO_H) // CONFIG_PCI=n, CONFIG_NEED_MACH_IO_H=n
 static void __init pci_reserve_io(void)
 {
 	struct static_vm *svm;
@@ -1042,6 +1136,7 @@ static void __init pci_reserve_io(void)
 	vm_reserve_area_early(PCI_IO_VIRT_BASE, SZ_2M, pci_reserve_io);
 }
 #else
+// ARM10C 20131130
 #define pci_reserve_io() do { } while (0)
 #endif
 
@@ -1404,7 +1499,7 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	 * create a mapping at the low-vectors virtual address.
 	 */
 	// vectors: 0xEF7FE000, virt_to_phys(vectors): 0x6F7FE000
-	// map.pfn: 0x37B
+	// map.pfn: 0x6F7FE
 	map.pfn = __phys_to_pfn(virt_to_phys(vectors));
 	map.virtual = 0xffff0000;
 	// map.length: 0x1000, PAGE_SIZE: 0x1000
@@ -1425,7 +1520,7 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	}
 
 	/* Now create a kernel read-only mapping */
-	// map.pfn: 0x37C
+	// map.pfn: 0X6F7FF
 	map.pfn += 1;
 	// map.virtual: 0xffff1000
 	map.virtual = 0xffff0000 + PAGE_SIZE;
@@ -1439,11 +1534,14 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	 * Ask the machine support to map in the statically mapped devices.
 	 */
 // 2013/11/16 종료
+// 2013/11/23 시작
 	if (mdesc->map_io)
 		// exynos_init_io 함수를 호출
 		mdesc->map_io();
 	else
 		debug_ll_io_init();
+
+	// section 단위로 pgd 할당시 사용 section이 갯수가 홀수인경우 안쓰도록 리저브함
 	fill_pmd_gaps();
 
 	/* Reserve fixed i/o space in VMALLOC region */
@@ -1459,9 +1557,11 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	flush_cache_all();
 }
 
+// ARM10C 20131130
 static void __init kmap_init(void)
 {
-#ifdef CONFIG_HIGHMEM
+#ifdef CONFIG_HIGHMEM // CONFIG_HIGHMEM=y
+	// PKMAP_BASE: 0xBFE00000,  _PAGE_KERNEL_TABLE: 0x11
 	pkmap_page_table = early_pte_alloc(pmd_off_k(PKMAP_BASE),
 		PKMAP_BASE, _PAGE_KERNEL_TABLE);
 #endif
@@ -1518,17 +1618,26 @@ void __init paging_init(struct machine_desc *mdesc)
 	map_lowmem();
 	// dma contiguous 는 사용안함
 	dma_contiguous_remap();
+
 // 2013/11/09 종료
 // 2013/11/16 시작
+
+	// vectors, io memory map 설정
 	devicemaps_init(mdesc);
+	// kmap을 위한 4k 공간을 0xBFE00000 에 맞는 2nd page tabel에 할당
 	kmap_init();
+	// tcm: tightly coupled memory. 
 	tcm_init();
 
+	// high vector가 최상위 pmd section index임
 	top_pmd = pmd_off_k(0xffff0000);
 
 	/* allocate the zero page. */
+	// PAGE_SIZE: 0x1000
+	// zero_page에 4k 메모리 할당 
 	zero_page = early_alloc(PAGE_SIZE);
 
+// 2013/11/30 종료
 	bootmem_init();
 
 	empty_zero_page = virt_to_page(zero_page);
