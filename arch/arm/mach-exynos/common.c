@@ -318,13 +318,15 @@ static int __init exynos_fdt_map_chipid(unsigned long node, const char *uname,
 		return 0;
 
 	// dtb - reg: <0x10000000 0x100>
-	reg = of_get_flat_dt_prop(node, "reg", &len);
+	reg = of_get_flat_dt_prop(node, "reg", &len); // [hbseo] exnos5.dtsi에 -> reg : 0x10000000 0x100>
+
 	if (reg == NULL || len != (sizeof(unsigned long) * 2))
 		return 0;
 
 	// reg[0]=0x10000000, reg[1]=0x100
 	// iodesc.pfn: 0x10000
-	iodesc.pfn = __phys_to_pfn(be32_to_cpu(reg[0]));
+	iodesc.pfn = __phys_to_pfn(be32_to_cpu(reg[0])); // [hbseo] pfn = page table entiry 즉 2차 page table을 말함
+
 	// iodesc.length: 0xFF
 	iodesc.length = be32_to_cpu(reg[1]) - 1;
 	// iodesc.virtual: 0xF8000000
