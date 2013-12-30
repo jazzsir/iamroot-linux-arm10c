@@ -443,7 +443,7 @@ void __init arm_memblock_init(struct meminfo *mi, struct machine_desc *mdesc)
 	 */
 	// arm_dma_limit: 0xFFFFFFFF, arm_lowmem_limit: 0
 	//
-	// CMA 메모리 영역을 reserve 함 (현재 설정에 따라 해당 사항 없음)
+	// DMA 메모리 영역을 reserve 함 (현재 설정에 따라 해당 사항 없음)
 	dma_contiguous_reserve(min(arm_dma_limit, arm_lowmem_limit));
 
 	// 메모리를 할당시 steal 가능여부 설정
@@ -482,7 +482,8 @@ void __init bootmem_init(void)
 	// ms->section_mem_map에 256MB를 위한 struct page용 공간 정보 저장
 	// ms->pageblock_bitmap : 할당받은 주소 + offset가 저장
 	sparse_init();
-
+// 2013/12/21 종료
+	
 	/*
 	 * Now free the memory - free_area_init_node needs
 	 * the sparse mem_map arrays initialized by sparse_init()
